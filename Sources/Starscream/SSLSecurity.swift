@@ -168,24 +168,28 @@ open class SSLSecurity : SSLTrustValidator {
                 collect.append(SecCertificateCreateWithData(nil,cert as CFData)!)
             }
             SecTrustSetAnchorCertificates(trust,collect as NSArray)
-            var result: SecTrustResultType = .unspecified
-            SecTrustEvaluate(trust,&result)
-            if result == .unspecified || result == .proceed {
-                if !validateEntireChain {
-                    return true
-                }
-                var trustedCount = 0
-                for serverCert in serverCerts {
-                    for cert in certs {
-                        if cert == serverCert {
-                            trustedCount += 1
-                            break
-                        }
+
+            var evaluateSetAnchorCertificatesTrustError: CFError?
+            let evaluateSetAnchorCertificatesTrustSuccess = SecTrustEvaluateWithError(trust, &evaluateSetAnchorCertificatesTrustError)
+            guard evaluateSetAnchorCertificatesTrustSuccess else {
+                NSLog("SSLSecurity: Failed setting anchor certificates SecTrust with error: \(evaluateSetAnchorCertificatesTrustError?.localizedDescription ?? "unknown")")
+                return false
+            }
+
+            if !validateEntireChain {
+                return true
+            }
+            var trustedCount = 0
+            for serverCert in serverCerts {
+                for cert in certs {
+                    if cert == serverCert {
+                        trustedCount += 1
+                        break
                     }
                 }
-                if trustedCount == serverCerts.count {
-                    return true
-                }
+            }
+            if trustedCount == serverCerts.count {
+                return true
             }
         }
         return false
@@ -213,11 +217,21 @@ open class SSLSecurity : SSLTrustValidator {
     */
     public func extractPublicKey(_ cert: SecCertificate, policy: SecPolicy) -> SecKey? {
         var possibleTrust: SecTrust?
-        SecTrustCreateWithCertificates(cert, policy, &possibleTrust)
+        let createWithCertificatesStatus: OSStatus = SecTrustCreateWithCertificates(cert, policy, &possibleTrust)
+        guard createWithCertificatesStatus == errSecSuccess else {
+            NSLog("SSLSecurity: Failed creating public key SecTrust with status: \(createWithCertificatesStatus)")
+            return nil
+        }
         
         guard let trust = possibleTrust else { return nil }
-        var result: SecTrustResultType = .unspecified
-        SecTrustEvaluate(trust, &result)
+
+        var evaluatePublicKeyTrustError: CFError?
+        let evaluatePublicKeyTrustSuccess = SecTrustEvaluateWithError(trust, &evaluatePublicKeyTrustError)
+        guard evaluatePublicKeyTrustSuccess else {
+            NSLog("SSLSecurity: Failed evaluating public key SecTrust with error: \(evaluatePublicKeyTrustError?.localizedDescription ?? "unknown")")
+            return nil
+        }
+
         return SecTrustCopyPublicKey(trust)
     }
     
